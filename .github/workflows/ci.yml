@@ -43,3 +43,5 @@ jobs:
 
       - name: Run tests
         run: clojure -M:test
+
+      - run: clojure -M:lint
