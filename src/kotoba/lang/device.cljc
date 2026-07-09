@@ -109,14 +109,19 @@
 (defn call
   "Capability-gated device call. `surface` is a keyword (`:bluetooth`), `method`
   is `:scan`/`:read`/`:write`/`:subscribe`, `args` is a map of method args.
-  Returns `::denied` if the surface isn't granted; dispatches to the driver
-  otherwise."
+  Returns `::denied` if the surface isn't granted, `::unknown-method` if
+  `method` isn't among the surface's declared effects (see surface-effects) —
+  granting a surface only authorizes the methods that surface's schema
+  actually exposes, not every IDevice method a driver happens to implement —
+  dispatches to the driver otherwise."
   [mgr surface method args]
   (if-let [dev (gate mgr surface)]
-    (case method
-      :scan      (scan dev)
-      :read      (read-dev dev (:handle args))
-      :write     (write-dev dev (:handle args) (:data args))
-      :subscribe (subscribe dev (:handle args) (:fn args))
+    (if (contains? (get surface-effects surface) method)
+      (case method
+        :scan      (scan dev)
+        :read      (read-dev dev (:handle args))
+        :write     (write-dev dev (:handle args) (:data args))
+        :subscribe (subscribe dev (:handle args) (:fn args))
+        ::unknown-method)
       ::unknown-method)
     denied))
