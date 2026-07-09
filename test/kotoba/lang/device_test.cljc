@@ -53,6 +53,26 @@
     ;; wifi driver present but policy grants bluetooth only -> wifi denied
     (is (= ::dev/denied (dev/call mgr :wifi :scan {})))))
 
+(deftest call-rejects-a-method-not-in-the-surfaces-effects
+  ;; Granting a surface only authorizes the methods THAT surface's schema
+  ;; declares (surface-effects), not every IDevice method a driver happens
+  ;; to implement. geolocation's effects are #{:read} only -- a read-only
+  ;; grant must not let a caller drive :write/:subscribe through the same
+  ;; driver.
+  (let [pol (-> (wit/policy) (wit/grant "device:geolocation"))
+        mgr (dev/make-device-manager pol {:geolocation (dev/mock-device)} {})]
+    (is (= ::dev/unknown-method
+           (dev/call mgr :geolocation :write {:handle "loc" :data "spoofed-coords"})))
+    (is (= ::dev/unknown-method
+           (dev/call mgr :geolocation :subscribe {:handle "loc" :fn (fn [_])})))
+    (is (not= ::dev/unknown-method (dev/call mgr :geolocation :read {}))
+        "read IS in geolocation's effects"))
+  (testing "wifi's effects are scan/connect/read, not write"
+    (let [pol (-> (wit/policy) (wit/grant "device:wifi"))
+          mgr (dev/make-device-manager pol {:wifi (dev/mock-device)} {})]
+      (is (= ::dev/unknown-method (dev/call mgr :wifi :write {:handle "x" :data "y"})))
+      (is (not= ::dev/unknown-method (dev/call mgr :wifi :scan {}))))))
+
 (deftest mock-device-shape
   (let [d (dev/mock-device (atom {"a" 1}))]
     (is (= ["a"] (dev/scan d)))
