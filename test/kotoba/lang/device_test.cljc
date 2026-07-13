@@ -5,13 +5,22 @@
 
 (deftest surfaces-are-capability-tokens
   (let [ss (dev/surfaces)]
-    (is (= 5 (count ss)))
+    (is (= 9 (count ss)))
     (is (some #(= (:wit/capability %) "device:bluetooth") ss))
-    (is (some #(= (:wit/capability %) "device:geolocation") ss))))
+    (is (some #(= (:wit/capability %) "device:geolocation") ss))
+    ;; ADR-2607140600 Phase 3a
+    (is (some #(= (:wit/capability %) "device:motion") ss))
+    (is (some #(= (:wit/capability %) "device:audio-io") ss))
+    (is (some #(= (:wit/capability %) "device:ble-scan") ss))
+    (is (some #(= (:wit/capability %) "device:wifi-info") ss))))
 
 (deftest surface-cap
   (is (= "device:bluetooth" (dev/surface-cap :bluetooth)))
-  (is (= "device:wifi" (dev/surface-cap :wifi))))
+  (is (= "device:wifi" (dev/surface-cap :wifi)))
+  (is (= "device:motion" (dev/surface-cap :motion)))
+  (is (= "device:audio-io" (dev/surface-cap :audio-io)))
+  (is (= "device:ble-scan" (dev/surface-cap :ble-scan)))
+  (is (= "device:wifi-info" (dev/surface-cap :wifi-info))))
 
 (deftest describe-surface-schema
   (let [d (dev/describe :bluetooth)]
@@ -19,6 +28,44 @@
     (is (contains? (:methods d) :scan))
     (is (contains? (:methods d) :connect)))
   (is (nil? (dev/describe :nonexistent))))
+
+(deftest describe-sensing-surface-schemas
+  ;; ADR-2607140600 Phase 3a: motion/audio-io/ble-scan/wifi-info schemas.
+  (let [d (dev/describe :motion)]
+    (is (= :motion (:surface d)))
+    (is (= #{:read} (:effects d)))
+    (is (contains? (:methods d) :read)))
+  (let [d (dev/describe :audio-io)]
+    (is (= :audio-io (:surface d)))
+    (is (= #{:read :write} (:effects d)))
+    (is (contains? (:methods d) :read))
+    (is (contains? (:methods d) :write)))
+  (let [d (dev/describe :ble-scan)]
+    (is (= :ble-scan (:surface d)))
+    (is (= #{:scan} (:effects d)))
+    (is (contains? (:methods d) :scan)))
+  (let [d (dev/describe :wifi-info)]
+    (is (= :wifi-info (:surface d)))
+    (is (= #{:read} (:effects d)))
+    (is (contains? (:methods d) :read))))
+
+(deftest sensing-host-driver-ref-wiring
+  ;; ADR-2607140600 Phase 3a: motion/audio-io/ble-scan/wifi-info document
+  ;; their host-injected driver as kotoba-lang/kotoba's kotoba.sensing-host,
+  ;; by kotoba-core-contracts capability id (234-237) -- data only, no code
+  ;; dependency on kotoba.
+  (is (= 234 (:kotoba-core-contracts/capability-id (dev/sensing-host-driver-ref :motion))))
+  (is (= 235 (:kotoba-core-contracts/capability-id (dev/sensing-host-driver-ref :audio-io))))
+  (is (= 236 (:kotoba-core-contracts/capability-id (dev/sensing-host-driver-ref :ble-scan))))
+  (is (= 237 (:kotoba-core-contracts/capability-id (dev/sensing-host-driver-ref :wifi-info))))
+  (is (= 'kotoba.sensing-host
+         (:kotoba.sensing-host/ns (dev/sensing-host-driver-ref :motion))))
+  (testing "surfaces that predate the kotoba runtime bridge have no driver ref"
+    (is (nil? (dev/sensing-host-driver-ref :bluetooth)))
+    (is (nil? (dev/sensing-host-driver-ref :wifi)))
+    (is (nil? (dev/sensing-host-driver-ref :display)))
+    (is (nil? (dev/sensing-host-driver-ref :geolocation)))
+    (is (nil? (dev/sensing-host-driver-ref :camera)))))
 
 (deftest discover-returns-only-granted
   (let [pol (-> (wit/policy) (wit/grant "device:bluetooth") (wit/grant "device:geolocation"))
@@ -79,3 +126,57 @@
     (is (= 1 (dev/read-dev d "a")))
     (dev/write-dev d "a" 2)
     (is (= 2 (dev/read-dev d "a")))))
+
+;; ---------- ADR-2607140600 Phase 3a: motion/audio-io/ble-scan/wifi-info ----------
+
+(deftest discover-includes-sensing-surfaces-when-granted
+  (let [pol (-> (wit/policy)
+                (wit/grant "device:motion")
+                (wit/grant "device:audio-io")
+                (wit/grant "device:ble-scan")
+                (wit/grant "device:wifi-info"))
+        mgr (dev/make-device-manager pol {} {})]
+    (is (= [:motion :audio-io :ble-scan :wifi-info] (dev/discover mgr)))))
+
+(deftest call-gated-motion-read
+  ;; motion's :read reuses the generic handle-less read-dev slot (like
+  ;; geolocation), driven here by a mock-device standing in for the
+  ;; eventual kotoba.sensing-host-backed driver.
+  (let [pol (-> (wit/policy) (wit/grant "device:motion"))
+        mgr (dev/make-device-manager pol {:motion (dev/mock-device (atom {nil [1 2 3]}))} {})]
+    (is (= [1 2 3] (dev/call mgr :motion :read {})))))
+
+(deftest call-gated-audio-io-read-and-write
+  (let [pol (-> (wit/policy) (wit/grant "device:audio-io"))
+        state (atom {})
+        mgr (dev/make-device-manager pol {:audio-io (dev/mock-device state)} {})]
+    (is (true? (dev/call mgr :audio-io :write {:handle :play :data {:freq-hz 440 :duration-ms 500}})))
+    (is (= {:freq-hz 440 :duration-ms 500} (dev/call mgr :audio-io :read {:handle :play})))))
+
+(deftest call-gated-ble-scan
+  (let [pol (-> (wit/policy) (wit/grant "device:ble-scan"))
+        dev0 (dev/mock-device (atom {"beacon-1" {:id "beacon-1" :rssi -55}}))
+        mgr (dev/make-device-manager pol {:ble-scan dev0} {})]
+    (is (= ["beacon-1"] (dev/call mgr :ble-scan :scan {})))))
+
+(deftest call-gated-wifi-info-read
+  (let [pol (-> (wit/policy) (wit/grant "device:wifi-info"))
+        mgr (dev/make-device-manager pol {:wifi-info (dev/mock-device (atom {nil {:signal-dbm -60}}))} {})]
+    (is (= {:signal-dbm -60} (dev/call mgr :wifi-info :read {})))))
+
+(deftest call-rejects-methods-not-in-sensing-surfaces-effects
+  (testing "motion is read-only -- no :write/:scan/:subscribe"
+    (let [pol (-> (wit/policy) (wit/grant "device:motion"))
+          mgr (dev/make-device-manager pol {:motion (dev/mock-device)} {})]
+      (is (= ::dev/unknown-method (dev/call mgr :motion :write {:handle nil :data []})))
+      (is (= ::dev/unknown-method (dev/call mgr :motion :scan {})))))
+  (testing "ble-scan is scan-only -- no :read/:write/:connect"
+    (let [pol (-> (wit/policy) (wit/grant "device:ble-scan"))
+          mgr (dev/make-device-manager pol {:ble-scan (dev/mock-device)} {})]
+      (is (= ::dev/unknown-method (dev/call mgr :ble-scan :read {})))
+      (is (= ::dev/unknown-method (dev/call mgr :ble-scan :write {:handle nil :data nil})))))
+  (testing "wifi-info is read-only -- no :write/:scan"
+    (let [pol (-> (wit/policy) (wit/grant "device:wifi-info"))
+          mgr (dev/make-device-manager pol {:wifi-info (dev/mock-device)} {})]
+      (is (= ::dev/unknown-method (dev/call mgr :wifi-info :write {:handle nil :data nil})))
+      (is (= ::dev/unknown-method (dev/call mgr :wifi-info :scan {}))))))
