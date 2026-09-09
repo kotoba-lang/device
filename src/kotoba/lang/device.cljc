@@ -23,7 +23,8 @@
   `sensing-host-driver-refs` below for that wiring as pure EDN data, not a
   code dependency."
   (:require [kotoba.lang.wit :as w]
-            [kotoba.lang.coll :as c]))
+            [kotoba.lang.coll :as c])
+  (:require [kotoba.device.device :as device-p]))
 
 ;; ---------- device surfaces (capability tokens) ----------
 
@@ -134,11 +135,16 @@
 
 ;; ---------- IDevice protocol (host-injected driver) ----------
 
-(defprotocol IDevice
-  (scan      [dev] "Return a seq of discoverable entities (devices/SSIDs/...).")
-  (read-dev  [dev handle] "Read from a handle (bytes/coords/frame).")
-  (write-dev [dev handle data] "Write `data` to a handle. Returns bool.")
-  (subscribe [dev handle fn*] "Subscribe to a handle; `fn*` called on events."))
+(def IDevice
+  "The protocol itself lives in one repo of its own now. This name is that
+  SAME protocol, not a second one: an implementation reified against either
+  is accepted by both (ADR-2609091900)."
+  device-p/Device)
+
+(def read-dev device-p/read-dev)
+(def scan device-p/scan)
+(def subscribe device-p/subscribe)
+(def write-dev device-p/write-dev)
 
 ;; ---------- mock device (tests / OSS standalone) ----------
 
