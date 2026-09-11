@@ -68,5 +68,5 @@ io.github.kotoba-lang/device {:git/sha "<sha>"}
 ## Verify
 
 ```sh
-clojure -M:test
+kbb -M:test
 ```
