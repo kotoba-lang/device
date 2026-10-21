@@ -1,9 +1,1 @@
-;; nbb.edn -- the kbb engine reads :deps HERE, not from deps.edn (kbb -M:test
-;; puts no git coordinate from deps.edn on the classpath). Created by
-;; scripts/migrate-clojure-test-to-kotoba-test.cljk; :paths copied from deps.edn.
-{:paths ["src"]
- :deps {
-        ;; kotoba.test (clojure.test-compatible surface), not clojure.test --
-        ;; scripts/migrate-clojure-test-to-kotoba-test.cljk. Explicit floor.
-        io.github.kotoba-lang/test {:git/url "https://github.com/kotoba-lang/test.git"
-                                    :git/sha "2ab4885f99fd25552d380d0f6b0b54c5a72eb7ae"}}}
+{:paths ["src"], :deps #:io.github.kotoba-lang{test #:git{:url "https://github.com/kotoba-lang/test.git", :sha "2ab4885f99fd25552d380d0f6b0b54c5a72eb7ae"}, wit #:git{:sha "5708fb98c9e25f233c5e44afe155328b29982cb2"}, coll #:git{:sha "9740cc2dc43a192077d77374b869a37940c801e4"}}}
